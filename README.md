@@ -12,7 +12,7 @@ To interface to the PowerLab with BLE, you need two pieces of hardware:
 If you've ever hooked up your PowerLab to your PC and monitored charging,
 you already have the FUIM3.
 
-#### Pi Zero W Setup
+### Pi Zero W Setup
 
 This controller emulator will run on the Pi Zero W. Follow the
 [instructions](https://www.canakit.com/quick-start/pi) for installing the
@@ -40,10 +40,10 @@ Finally, `bumpemu` can be installed using `pip`:
 
 Then you can run bumpemu as follows:
 
-    /usr/loca/bin/bumpemu-controller
+    /usr/local/bin/bumpemu-controller
     
 You can view various configuration options with `-h`:
 
-    /usr/loca/bin/bumpemu-controller -h
+    /usr/local/bin/bumpemu-controller -h
     
 A systemd service is in the repo if you wish to have bumpemu run at boot.
