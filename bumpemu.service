@@ -1,0 +1,16 @@
+[Unit]
+Description=Bump controller emulator service
+Requires=bluetooth.target
+After=bluetooth.target
+StartLimitIntervalSec=60
+StartLimitBurst=4
+StartLimitAction=reboot
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=pi
+ExecStart=/usr/local/bin/bumpemu-controller
+
+[Install]
+WantedBy=multi-user.target

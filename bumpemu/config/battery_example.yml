@@ -1,0 +1,24 @@
+pref_operation: accurate
+pref_charge_c_accurate: 1
+pref_charge_c_normal: 2
+pref_charge_c_fastest: 3
+pref_charge_c_discharge: 2
+pref_charge_c_storage: 2
+pref_charge_c_analyze: 1
+pref_charge_c_monitor: 1
+pref_discharge_c: 3
+
+brand_name: Examp DO NOT USE
+chemistry: lipo
+cell_count: 1
+capacity: 100
+charge_c_max: 3
+discharge_c_max: 5
+internal_resistance: 1.2
+cycle_count: 1
+
+storage_charge_volts: 3.8
+storage_discharge_volts: 3.77
+max_cell_volts: 4.2
+min_cell_volts: 3.3
+pack_count: 1
