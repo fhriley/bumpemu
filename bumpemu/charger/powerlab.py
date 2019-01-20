@@ -143,6 +143,18 @@ def _verify_cmd_with_values(cmd, buf, byte_vals):
         raise VerifyException(cmd.decode('utf-8') + ' failed')
 
 
+def retry(func, num, interval=.1):
+    while True:
+        try:
+            return func()
+        except Exception as ex:
+            if num <= 0:
+                raise
+            num -= 1
+            if interval > 0:
+                sleep(interval)
+
+
 class Powerlab(object):
     READ_TIMEOUT = 1
     WRITE_TIMEOUT = 1
@@ -222,134 +234,146 @@ class Powerlab(object):
             self._ser = None
             self._logger.info('closed %s', self._using_port)
 
-    def command_enter(self, num_parallel=1):
+    def command_enter(self, num_parallel=1, retries=0):
         self._logger.debug('command_enter')
-        self._send_cmd(num_parallel, 'E')
+        return retry(lambda: self._send_cmd(num_parallel, 'E'), retries)
 
-    def command_monitor(self, num_parallel, use_bananas=True):
+    def command_monitor(self, num_parallel, use_bananas=True, retries=0):
         self._logger.debug('command_monitor')
-        self._send_cmd(num_parallel, 'M' if use_bananas else 'm')
+        return retry(lambda: self._send_cmd(num_parallel, 'M' if use_bananas else 'm'), retries)
 
-    def command_charge(self, num_parallel, use_bananas=True):
+    def command_charge(self, num_parallel, use_bananas=True, retries=0):
         self._logger.debug('command_charge')
-        self._send_cmd(num_parallel, 'C' if use_bananas else 'c')
+        return retry(lambda: self._send_cmd(num_parallel, 'C' if use_bananas else 'c'), retries)
 
-    def command_discharge(self, num_parallel, use_bananas=True):
+    def command_discharge(self, num_parallel, use_bananas=True, retries=0):
         self._logger.debug('command_discharge')
-        self._send_cmd(num_parallel, 'D' if use_bananas else 'd')
+        return retry(lambda: self._send_cmd(num_parallel, 'D' if use_bananas else 'd'), retries)
 
-    def command_cycle(self, num_parallel, use_bananas=True):
+    def command_cycle(self, num_parallel, use_bananas=True, retries=0):
         self._logger.debug('command_cycle')
-        self._send_cmd(num_parallel, 'Y' if use_bananas else 'y')
+        return retry(lambda: self._send_cmd(num_parallel, 'Y' if use_bananas else 'y'), retries)
 
-    def command_set_active_preset(self, which):
+    def command_set_active_preset(self, which, retries=0):
         self._logger.debug('command_set_active_preset %s', which)
         if which < 0 or which > 24:
             raise PowerlabException('invalid preset: %s' % which)
-        write_cmd = _command('SelP' + chr(which))
-        calc_crc = crc16([which], init=0x1114)
-        self._write(write_cmd)
-        resp = self._read(nbytes=len(write_cmd) + 2)
-        crc = (resp[len(write_cmd)] << 8) | resp[len(write_cmd) + 1]
-        if crc != calc_crc:
-            raise CrcException('set preset %s failed: invalid CRC %s != %s' % (which, hex(crc), hex(calc_crc)))
+        def impl():
+            write_cmd = _command('SelP' + chr(which))
+            calc_crc = crc16([which], init=0x1114)
+            self._write(write_cmd)
+            resp = self._read(nbytes=len(write_cmd) + 2)
+            crc = (resp[len(write_cmd)] << 8) | resp[len(write_cmd) + 1]
+            if crc != calc_crc:
+                raise CrcException('set preset %s failed: invalid CRC %s != %s' % (which, hex(crc), hex(calc_crc)))
+        return retry(impl, retries)
 
-    def read_status(self):
+    def read_status(self, retries=0):
         self._logger.debug('read_status')
-        cmd = _command('Ram\0')
-        self._write(cmd)
-        resp = self._read(nbytes=153)
-        self._verify_cmd_with_crc(cmd, resp, crc_index=151, crc_init=0x926)
-        return Status(resp[len(cmd):151])
+        def impl():
+            cmd = _command('Ram\0')
+            self._write(cmd)
+            resp = self._read(nbytes=153)
+            self._verify_cmd_with_crc(cmd, resp, crc_index=151, crc_init=0x926)
+            return Status(resp[len(cmd):151])
+        return retry(impl, retries)
 
-    def read_presets(self):
+    def read_presets(self, retries=0):
         self._logger.debug('reading presets')
-        cmd = _command('Prst')
-        self._write(cmd)
-        resp = self._read(nbytes=7686, timeout=7)
-        _verify_cmd(cmd, resp)
-        self._verify_crc(resp[4:], crc_index=7680, crc_init=0x18e4)
-        _verify_preset_checksums(resp[4:])
-        presets = []
-        for preset_num in range(0, 75):
-            offset = _prestart_offset(preset_num)
-            presets.append(Preset(resp[4 + offset:4 + offset + 102], preset_num))
-        return presets
+        def impl():
+            cmd = _command('Prst')
+            self._write(cmd)
+            resp = self._read(nbytes=7686, timeout=7)
+            _verify_cmd(cmd, resp)
+            self._verify_crc(resp[4:], crc_index=7680, crc_init=0x18e4)
+            _verify_preset_checksums(resp[4:])
+            presets = []
+            for preset_num in range(0, 75):
+                offset = _prestart_offset(preset_num)
+                presets.append(Preset(resp[4 + offset:4 + offset + 102], preset_num))
+            return presets
+        return retry(impl, retries)
 
-    def write_presets(self, presets):
+    def write_presets(self, presets, retries=0):
         self._logger.debug('writing presets')
-        write_cmd = _command('WrtP')
-        ii = 1
-        for preset in presets:
-            preset.is_validated = not preset.is_empty
-            write_cmd.extend(preset.raw_bytes())
+        def impl():
+            write_cmd = _command('WrtP')
+            ii = 1
+            for preset in presets:
+                preset.is_validated = not preset.is_empty
+                write_cmd.extend(preset.raw_bytes())
 
-            # every 510 bytes, compute and add checksum
-            if (ii % 5) == 0:
-                block_num = ii // 5 - 1
-                start = 4 + block_num * 512
-                end = start + 510
-                assert (len(write_cmd) == end)
-                cksum = checksum(write_cmd[start:end], init=0xc8)
-                write_cmd.append(cksum >> 8)
-                write_cmd.append(cksum & 0xff)
-            ii += 1
+                # every 510 bytes, compute and add checksum
+                if (ii % 5) == 0:
+                    block_num = ii // 5 - 1
+                    start = 4 + block_num * 512
+                    end = start + 510
+                    assert (len(write_cmd) == end)
+                    cksum = checksum(write_cmd[start:end], init=0xc8)
+                    write_cmd.append(cksum >> 8)
+                    write_cmd.append(cksum & 0xff)
+                ii += 1
 
-        if self._logger.isEnabledFor(logging.DEBUG):
-            _verify_preset_checksums(write_cmd[4:])
+            if self._logger.isEnabledFor(logging.DEBUG):
+                _verify_preset_checksums(write_cmd[4:])
 
-        assert (len(write_cmd) == 7684)
-        swap_bytes(write_cmd, start=4)
-        calc_crc = crc16(write_cmd[4:], init=0x4d1)
+            assert (len(write_cmd) == 7684)
+            swap_bytes(write_cmd, start=4)
+            calc_crc = crc16(write_cmd[4:], init=0x4d1)
 
-        self._logger.debug('erase presets')
-        cmd = _command('ErsP')
-        self._write(cmd)
-        resp = self._read(nbytes=6)
-        _verify_cmd_with_values(cmd, resp, bytes([0x22, 0x1b]))
+            self._logger.debug('erase presets')
+            cmd = _command('ErsP')
+            self._write(cmd)
+            resp = self._read(nbytes=6)
+            _verify_cmd_with_values(cmd, resp, bytes([0x22, 0x1b]))
 
-        sleep(.05)
-        self._logger.debug('write presets')
-        self._write(write_cmd, timeout=7)
-        sleep(5.25)
-        resp = self._read(nbytes=7686, timeout=7)
-        if len(resp) != 7686:
-            raise VerifyException('did not get expected response length: %d != %d' % (len(resp), 7686))
-        crc = (resp[7684] << 8) | resp[7685]
-        if crc != calc_crc:
-            raise CrcException('write presets failed: invalid CRC %s != %s' % (hex(crc), hex(calc_crc)))
-        self._logger.debug('presets write success')
+            sleep(.05)
+            self._logger.debug('write presets')
+            self._write(write_cmd, timeout=7)
+            sleep(5.25)
+            resp = self._read(nbytes=7686, timeout=7)
+            if len(resp) != 7686:
+                raise VerifyException('did not get expected response length: %d != %d' % (len(resp), 7686))
+            crc = (resp[7684] << 8) | resp[7685]
+            if crc != calc_crc:
+                raise CrcException('write presets failed: invalid CRC %s != %s' % (hex(crc), hex(calc_crc)))
+            self._logger.debug('presets write success')
+        return retry(impl, retries)
 
-    def read_options(self):
+    def read_options(self, retries=0):
         self._logger.debug('loading options')
-        cmd = _command('PrsI')
-        self._write(cmd)
-        resp = self._read(nbytes=262)
-        self._verify_cmd_with_crc(cmd, resp, crc_index=260, crc_init=0x342)
-        return Options(resp[len(cmd):260])
+        def impl():
+            cmd = _command('PrsI')
+            self._write(cmd)
+            resp = self._read(nbytes=262)
+            self._verify_cmd_with_crc(cmd, resp, crc_index=260, crc_init=0x342)
+            return Options(resp[len(cmd):260])
+        return retry(impl, retries)
 
-    def write_options(self, options):
+    def write_options(self, options, retries=0):
         self._logger.debug('writing options')
-        write_cmd = _command('WrtC')
-        write_cmd.extend(options.raw_bytes()[128:192])
+        def impl():
+            write_cmd = _command('WrtC')
+            write_cmd.extend(options.raw_bytes()[128:192])
 
-        assert (len(write_cmd) == 68)
-        swap_bytes(write_cmd, start=4)
-        calc_crc = crc16(write_cmd[4:], init=0xf5)
+            assert (len(write_cmd) == 68)
+            swap_bytes(write_cmd, start=4)
+            calc_crc = crc16(write_cmd[4:], init=0xf5)
 
-        self._logger.debug('erase options')
-        cmd = _command('ErsC')
-        self._write(cmd)
-        resp = self._read(nbytes=6)
-        _verify_cmd_with_values(cmd, resp, bytes([0x0d, 0x04]))
+            self._logger.debug('erase options')
+            cmd = _command('ErsC')
+            self._write(cmd)
+            resp = self._read(nbytes=6)
+            _verify_cmd_with_values(cmd, resp, bytes([0x0d, 0x04]))
 
-        self._logger.debug('write options')
-        self._write(write_cmd)
-        resp = self._read(nbytes=70)
-        crc = (resp[68] << 8) | resp[69]
-        if crc != calc_crc:
-            raise CrcException('write options failed: invalid CRC %s != %s' % (hex(crc), hex(calc_crc)))
-        self._logger.debug('options write success')
+            self._logger.debug('write options')
+            self._write(write_cmd)
+            resp = self._read(nbytes=70)
+            crc = (resp[68] << 8) | resp[69]
+            if crc != calc_crc:
+                raise CrcException('write options failed: invalid CRC %s != %s' % (hex(crc), hex(calc_crc)))
+            self._logger.debug('options write success')
+        return retry(impl, retries)
 
     def _read(self, nbytes=1, timeout=READ_TIMEOUT, retries=0):
         resp = None
@@ -381,22 +405,11 @@ class Powerlab(object):
         if debug.LOG_SERIAL:
             print_bytes(self._logger, logging.DEBUG, data, 'w')
 
-    def _send_cmd(self, num_parallel, command_char, num_retries=2):
+    def _send_cmd(self, num_parallel, command_char):
         cmd = _command('Se' + _num_parallel_to_char(num_parallel) + command_char)
-        while num_retries >= 0:
-            self._write(cmd)
-            resp = self._read(nbytes=6)
-            try:
-                _verify_cmd_with_values(cmd, resp, bytes([0x5, 0xdc]))
-            except VerifyException as ex:
-                if num_retries == 0:
-                    self._logger.exception(ex)
-                    raise
-                else:
-                    self._logger.debug(str(ex))
-            else:
-                return
-            num_retries -= 1
+        self._write(cmd)
+        resp = self._read(nbytes=6)
+        _verify_cmd_with_values(cmd, resp, bytes([0x5, 0xdc]))
 
     def _verify_crc(self, buf, crc_index, crc_init):
         crc = (buf[crc_index] << 8) | buf[crc_index + 1]

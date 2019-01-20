@@ -212,6 +212,8 @@ def _presets_file(value):
 def main():
     presets_yml = os.path.realpath('/etc/bumpemu/presets.yml')
     battery_yml = os.path.realpath('/etc/bumpemu/battery.yml')
+    if not os.path.isfile(battery_yml):
+        battery_yml = None
 
     parser = argparse.ArgumentParser(usage='python3 -m bumpemu.main [options]',
                                      description='A bump controller for BLE that emulates a real bump controller.')

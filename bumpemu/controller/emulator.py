@@ -364,7 +364,7 @@ class RxChrc(bluez_dbus.Characteristic):
                 self._logger.debug('presets_needing_update: %s', presets_needing_update)
                 if self.can_change_preset():
                     self._logger.info('writing presets')
-                    self._charger.write_presets(self._presets)
+                    self._charger.write_presets(self._presets, retries=2)
                     return False
             else:
                 return False
@@ -384,7 +384,7 @@ class RxChrc(bluez_dbus.Characteristic):
                 assert self._operation_to_preset_idx is not None
                 self._active_preset = self._presets[self._operation_to_preset_idx[self._selected_operation]]
                 try:
-                    self._charger.command_set_active_preset(self._active_preset.preset_num)
+                    self._charger.command_set_active_preset(self._active_preset.preset_num, retries=2)
                 except Exception as ex:
                     self._disallow_operations = True
                     self._logger.exception(ex)
@@ -398,7 +398,7 @@ class RxChrc(bluez_dbus.Characteristic):
 
         self._logger.info('reading presets')
         try:
-            self._presets = self._charger.read_presets()
+            self._presets = self._charger.read_presets(retries=2)
         except Exception as ex:
             self._logger.exception(ex)
         else:
@@ -440,6 +440,8 @@ class RxChrc(bluez_dbus.Characteristic):
                         self._charger_options = None
                         self._charger.close()
                         self._state = self._state.on_event(Event.DISCONNECTED, self)
+                else:
+                    self._no_status_count = 0
 
             if self._in_state(state.DisconnectedState):
                 message_id = constants.MessageId.STATUS_IDLE_UPDATE_NOT2
@@ -575,9 +577,9 @@ class RxChrc(bluez_dbus.Characteristic):
                 assert self._battery_group
                 try:
                     if self._selected_operation == constants.ChargerOperation.DISCHARGE:
-                        self._charger.command_discharge(self._battery_group.battery_count)
+                        self._charger.command_discharge(self._battery_group.battery_count, retries=2)
                     else:
-                        self._charger.command_charge(self._battery_group.battery_count)
+                        self._charger.command_charge(self._battery_group.battery_count, retries=2)
                 except Exception as ex:
                     self._logger.exception(ex)
 
@@ -585,7 +587,7 @@ class RxChrc(bluez_dbus.Characteristic):
         self._logger.debug('operation_stop(port=%d)', port)
         with self._lock:
             try:
-                self._charger.command_enter()
+                self._charger.command_enter(retries=2)
             except Exception as ex:
                 self._logger.exception(ex)
             else:
@@ -595,7 +597,7 @@ class RxChrc(bluez_dbus.Characteristic):
         self._logger.debug('dismiss(port=%d, keep_setup=%d)', port, keep_setup)
         with self._lock:
             try:
-                self._charger.command_enter()
+                self._charger.command_enter(retries=2)
             except Exception as ex:
                 self._logger.exception(ex)
             else:
@@ -606,7 +608,7 @@ class RxChrc(bluez_dbus.Characteristic):
         with self._lock:
             try:
                 if self._forced_error_code is None:
-                    self._charger.command_enter()
+                    self._charger.command_enter(retries=2)
                 if self._forced_error_code not in self._not_clearable_error_codes:
                     self._forced_error_code = None
             except Exception as ex:
@@ -633,7 +635,7 @@ class RxChrc(bluez_dbus.Characteristic):
 
                 try:
                     self._logger.info('writing presets')
-                    self._charger.write_presets(self._presets)
+                    self._charger.write_presets(self._presets, retries=2)
                 except Exception as ex:
                     update_preset_counts(self._battery_group.battery_count)
                     self._logger.exception(ex)
@@ -660,7 +662,7 @@ class RxChrc(bluez_dbus.Characteristic):
             else:
                 assert self._battery_group
                 try:
-                    self._charger.command_monitor(self._battery_group.battery_count, use_bananas=True)
+                    self._charger.command_monitor(self._battery_group.battery_count, use_bananas=True, retries=2)
                 except Exception as ex:
                     self._logger.exception(ex)
 
@@ -681,7 +683,7 @@ class RxChrc(bluez_dbus.Characteristic):
                 else:
                     new_preset = self._presets[self._operation_to_preset_idx[new_op]]
                     try:
-                        self._charger.command_set_active_preset(new_preset.preset_num)
+                        self._charger.command_set_active_preset(new_preset.preset_num, retries=2)
                     except Exception as ex:
                         self._logger.exception(ex)
                     else:
@@ -692,4 +694,4 @@ class RxChrc(bluez_dbus.Characteristic):
     def clear_halt_for_safety(self):
         self._logger.debug('clear_halt_for_safety')
         # lock should be held already
-        self._charger.command_enter()
+        self._charger.command_enter(retries=2)
