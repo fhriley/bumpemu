@@ -35,7 +35,7 @@ REQUIRES = ['dbus-python>=1.2.8', 'PyGObject>=3.22.0', 'pyserial>=3.4', 'PyYAML>
 
 setuptools.setup(
     name="bumpemu",
-    version="0.0.7",
+    version="0.0.8",
     author="Frank Riley",
     author_email="fhriley@gmail.com",
     description="A bump controller emulator on Raspberry Pi Zero W.",
